@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced SQL Dumper Pro</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+</head>
+<body class="bg-dark text-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-dark bg-darker border-bottom border-success">
+        <div class="container-fluid">
+            <span class="navbar-brand mb-0 h1">
+                <i class="bi bi-shield-lock text-success"></i> Advanced SQL Dumper Pro
+            </span>
+            <span class="text-muted small">v1.0</span>
+        </div>
+    </nav>
+
+    <!-- Main Container -->
+    <div class="container-fluid py-4">
+        <div class="row">
+            <!-- Left Panel - Input Form -->
+            <div class="col-lg-4">
+                <div class="card bg-darker border-success shadow-lg">
+                    <div class="card-header bg-success bg-opacity-10 border-success">
+                        <h5 class="mb-0"><i class="bi bi-gear"></i> Scan Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="scanForm" onsubmit="startScan(event)">
+                            <!-- Target URL -->
+                            <div class="mb-3">
+                                <label for="targetUrl" class="form-label">
+                                    <i class="bi bi-globe"></i> Target URL <span class="text-danger">*</span>
+                                </label>
+                                <input type="url" class="form-control form-control-sm bg-dark border-success text-light" 
+                                       id="targetUrl" placeholder="http://target.com/vuln.php?id=1" required>
+                                <small class="text-muted">Example: http://target.com/page.php?id=1</small>
+                            </div>
+
+                            <!-- Injectable Parameter -->
+                            <div class="mb-3">
+                                <label for="injectParam" class="form-label">
+                                    <i class="bi bi-arrow-right-circle"></i> Injectable Parameter
+                                </label>
+                                <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
+                                       id="injectParam" placeholder="id" value="id">
+                            </div>
+
+                            <!-- Request Method -->
+                            <div class="mb-3">
+                                <label for="requestMethod" class="form-label">
+                                    <i class="bi bi-diagram-2"></i> Request Method
+                                </label>
+                                <select class="form-select form-select-sm bg-dark border-success text-light" id="requestMethod">
+                                    <option value="GET">GET</option>
+                                    <option value="POST">POST</option>
+                                </select>
+                            </div>
+
+                            <!-- POST Data -->
+                            <div class="mb-3" id="postDataDiv" style="display: none;">
+                                <label for="postData" class="form-label">
+                                    <i class="bi bi-file-text"></i> POST Data
+                                </label>
+                                <textarea class="form-control form-control-sm bg-dark border-success text-light" 
+                                          id="postData" rows="2" placeholder="key1=value1&key2=value2"></textarea>
+                            </div>
+
+                            <!-- Proxy -->
+                            <div class="mb-3">
+                                <label for="proxy" class="form-label">
+                                    <i class="bi bi-diagram-3"></i> Proxy (Optional)
+                                </label>
+                                <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
+                                       id="proxy" placeholder="http://127.0.0.1:8080">
+                            </div>
+
+                            <!-- Cookies -->
+                            <div class="mb-3">
+                                <label for="cookies" class="form-label">
+                                    <i class="bi bi-cookie"></i> Cookies (Optional)
+                                </label>
+                                <textarea class="form-control form-control-sm bg-dark border-success text-light" 
+                                          id="cookies" rows="2" placeholder="session=abc123; token=xyz789"></textarea>
+                            </div>
+
+                            <!-- User-Agent -->
+                            <div class="mb-3">
+                                <label for="userAgent" class="form-label">
+                                    <i class="bi bi-person-circle"></i> User-Agent
+                                </label>
+                                <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
+                                       id="userAgent" placeholder="Mozilla/5.0..." 
+                                       value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36">
+                            </div>
+
+                            <!-- Custom Headers -->
+                            <div class="mb-3">
+                                <label for="customHeaders" class="form-label">
+                                    <i class="bi bi-list"></i> Custom Headers (JSON)
+                                </label>
+                                <textarea class="form-control form-control-sm bg-dark border-success text-light" 
+                                          id="customHeaders" rows="2" placeholder='{"X-Custom": "value"}'></textarea>
+                            </div>
+
+                            <!-- Tamper Options -->
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-shield-check"></i> Tamper Options</label>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="tamperSpace2Comment" value="space2comment">
+                                    <label class="form-check-label" for="tamperSpace2Comment">
+                                        Space to Comment (/**/)</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="tamperRandomCase" value="randomcase">
+                                    <label class="form-check-label" for="tamperRandomCase">
+                                        Random Case</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="tamperBetween" value="between">
+                                    <label class="form-check-label" for="tamperBetween">
+                                        Between Obfuscation</label>
+                                </div>
+                            </div>
+
+                            <!-- Start Scan Button -->
+                            <button type="submit" class="btn btn-success w-100 btn-lg" id="startBtn">
+                                <i class="bi bi-play-circle"></i> Start Scan
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Session History -->
+                <div class="card bg-darker border-success shadow-lg mt-3">
+                    <div class="card-header bg-success bg-opacity-10 border-success">
+                        <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Sessions</h5>
+                    </div>
+                    <div class="card-body" id="sessionHistory">
+                        <div class="spinner-border spinner-border-sm text-success" role="status">
+                            <span class="visually-hidden">Loading...</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel - Results -->
+            <div class="col-lg-8">
+                <!-- Progress Panel -->
+                <div class="card bg-darker border-success shadow-lg mb-3" id="progressPanel" style="display: none;">
+                    <div class="card-header bg-success bg-opacity-10 border-success">
+                        <h5 class="mb-0"><i class="bi bi-hourglass-split"></i> Scan Progress</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="progress mb-3" style="height: 25px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-success" 
+                                 id="progressBar" role="progressbar" style="width: 0%">
+                                <span id="progressText">0%</span>
+                            </div>
+                        </div>
+                        <div id="scanLogs" class="bg-dark p-3 rounded" style="height: 300px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;">
+                            <!-- Logs will appear here -->
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Results Panel -->
+                <div class="card bg-darker border-success shadow-lg" id="resultsPanel" style="display: none;">
+                    <div class="card-header bg-success bg-opacity-10 border-success">
+                        <div class="row align-items-center">
+                            <div class="col">
+                                <h5 class="mb-0"><i class="bi bi-database"></i> Scan Results</h5>
+                            </div>
+                            <div class="col-auto">
+                                <button class="btn btn-sm btn-outline-success" id="exportBtn" onclick="exportResults()">
+                                    <i class="bi bi-download"></i> Export CSV
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <!-- Database Tree -->
+                        <div id="resultTree" class="mb-3">
+                            <!-- Tree will be rendered here -->
+                        </div>
+
+                        <!-- Data Table -->
+                        <div id="dataTableContainer" style="display: none;">
+                            <h6 class="text-success mb-3"><i class="bi bi-table"></i> Data Preview</h6>
+                            <div class="table-responsive">
+                                <table id="dataTable" class="table table-dark table-sm table-hover">
+                                    <thead class="table-success">
+                                        <tr id="tableHeader"></tr>
+                                    </thead>
+                                    <tbody id="tableBody"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Empty State -->
+                <div class="card bg-darker border-success shadow-lg" id="emptyState">
+                    <div class="card-body text-center py-5">
+                        <i class="bi bi-inbox text-success" style="font-size: 3rem;"></i>
+                        <p class="text-muted mt-3">No scan results yet. Configure and start a scan to begin.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
+    <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
