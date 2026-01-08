@@ -1,6 +1,6 @@
 /**
- * Advanced SQL Dumper Pro v2.0 - Frontend Application
- * Enhanced with better UX, state persistence, and notifications
+ * Advanced SQL Dumper Pro v3.0 - Intuitive Interface
+ * Clear step-by-step workflow with better UX
  */
 
 // Configuration
@@ -39,9 +39,8 @@ toastr.options = {
  */
 document.addEventListener('DOMContentLoaded', () => {
     loadSavedConfig();
-    loadSessionHistory();
     setupEventListeners();
-    showNotification('Application loaded successfully', 'success');
+    showNotification('Application ready. Enter target URL and click Start Scan.', 'info');
 });
 
 /**
@@ -94,34 +93,15 @@ function saveConfig() {
 }
 
 /**
- * Load preset configuration
+ * Update step indicator
  */
-function loadPreset(preset) {
-    const presets = {
-        dvwa: {
-            url: 'http://localhost/dvwa/vulnerabilities/sqli/?id=1',
-            param: 'id',
-            method: 'GET',
-        },
-        'sqli-labs': {
-            url: 'http://localhost/Less-1/?id=1',
-            param: 'id',
-            method: 'GET',
-        },
-        custom: {
-            url: '',
-            param: 'id',
-            method: 'GET',
-        },
-    };
-
-    const config = presets[preset];
-    if (config) {
-        document.getElementById('targetUrl').value = config.url;
-        document.getElementById('injectParam').value = config.param;
-        document.getElementById('requestMethod').value = config.method;
-        showNotification(`Preset "${preset}" loaded`, 'info');
-    }
+function updateStep(stepNumber) {
+    // Remove active class from all steps
+    document.querySelectorAll('.step-indicator').forEach(el => {
+        el.classList.remove('active');
+    });
+    // Add active class to current step
+    document.getElementById(`step${stepNumber}`).classList.add('active');
 }
 
 /**
@@ -130,15 +110,18 @@ function loadPreset(preset) {
 function startScan(event) {
     event.preventDefault();
 
-    // Save configuration
-    saveConfig();
-
     // Validate input
     const url = document.getElementById('targetUrl').value;
     if (!url) {
         showNotification('Please enter a target URL', 'error');
         return;
     }
+
+    // Save configuration
+    saveConfig();
+
+    // Update step
+    updateStep(2);
 
     // Disable form
     const startBtn = document.getElementById('startBtn');
@@ -166,6 +149,7 @@ function startScan(event) {
         showNotification('Invalid JSON in Custom Headers', 'error');
         startBtn.disabled = false;
         startBtn.innerHTML = '<i class="bi bi-play-circle"></i> Start Scan';
+        updateStep(1);
         return;
     }
 
@@ -183,15 +167,16 @@ function startScan(event) {
             currentScanId = data.scan_id;
             showProgressPanel();
             startStatusPolling();
-            loadSessionHistory();
             showNotification('Scan started successfully', 'success');
         } else {
             showNotification('Error: ' + (data.error || 'Unknown error'), 'error');
+            updateStep(1);
         }
     })
     .catch(error => {
         console.error('Error:', error);
         showNotification('Error starting scan: ' + error.message, 'error');
+        updateStep(1);
     })
     .finally(() => {
         startBtn.disabled = false;
@@ -272,6 +257,9 @@ function updateScanStatus() {
         document.getElementById('progressBar').style.width = progress + '%';
         document.getElementById('progressText').textContent = progress + '%';
 
+        // Update status indicators
+        updateStatusIndicators(data.results);
+
         // Check if scan is complete
         if (data.status === 'completed' || data.status === 'failed') {
             clearInterval(scanStatusInterval);
@@ -281,9 +269,11 @@ function updateScanStatus() {
             if (data.status === 'completed' && data.results) {
                 currentResults = data.results;
                 displayResults(data.results);
+                updateStep(3);
                 showNotification('Scan completed successfully!', 'success');
             } else if (data.status === 'failed') {
                 showNotification('Scan failed. Check logs for details.', 'error');
+                updateStep(1);
             }
         }
     })
@@ -293,24 +283,65 @@ function updateScanStatus() {
 }
 
 /**
+ * Update status indicators
+ */
+function updateStatusIndicators(results) {
+    if (!results) return;
+
+    // Update columns
+    if (results.columns) {
+        let colCount = 0;
+        Object.values(results.columns).forEach(dbs => {
+            Object.values(dbs).forEach(cols => {
+                colCount += cols.length;
+            });
+        });
+        document.getElementById('statusColumns').textContent = colCount > 0 ? colCount : '-';
+    }
+
+    // Update databases
+    if (results.databases) {
+        document.getElementById('statusDatabases').textContent = results.databases.length;
+    }
+
+    // Update tables
+    if (results.tables) {
+        let tableCount = 0;
+        Object.values(results.tables).forEach(tables => {
+            tableCount += tables.length;
+        });
+        document.getElementById('statusTables').textContent = tableCount;
+    }
+
+    // Update rows
+    if (results.data) {
+        let rowCount = 0;
+        Object.values(results.data).forEach(tables => {
+            Object.values(tables).forEach(rows => {
+                rowCount += rows.length;
+            });
+        });
+        document.getElementById('statusRows').textContent = rowCount;
+    }
+}
+
+/**
  * Display scan results
  */
 function displayResults(results) {
     document.getElementById('progressPanel').style.display = 'none';
     document.getElementById('resultsPanel').style.display = 'block';
 
+    // Show vulnerability status
+    if (results.vulnerable) {
+        document.getElementById('vulnStatus').style.display = 'block';
+    }
+
     // Show database info panel
     if (results.dbms || results.current_db) {
         document.getElementById('dbInfoPanel').style.display = 'block';
         document.getElementById('dbmsInfo').textContent = results.dbms || '-';
         document.getElementById('currentDbInfo').textContent = results.current_db || '-';
-        document.getElementById('dbCountInfo').textContent = (results.databases || []).length;
-        
-        let tableCount = 0;
-        Object.values(results.tables || {}).forEach(tables => {
-            tableCount += tables.length;
-        });
-        document.getElementById('tableCountInfo').textContent = tableCount;
     }
 
     // Build result tree
@@ -327,24 +358,6 @@ function buildResultTree(results) {
     const treeContainer = document.getElementById('resultTree');
     treeContainer.innerHTML = '';
 
-    // Vulnerability status
-    const statusDiv = document.createElement('div');
-    statusDiv.className = 'mb-3';
-    if (results.vulnerable) {
-        statusDiv.innerHTML = '<span class="badge badge-success"><i class="bi bi-check-circle"></i> Vulnerable</span>';
-    } else {
-        statusDiv.innerHTML = '<span class="badge badge-danger"><i class="bi bi-x-circle"></i> Not Vulnerable</span>';
-    }
-    treeContainer.appendChild(statusDiv);
-
-    // WAF Detection
-    if (results.waf_detected) {
-        const wafDiv = document.createElement('div');
-        wafDiv.className = 'alert alert-warning mb-3';
-        wafDiv.innerHTML = `<i class="bi bi-shield-exclamation"></i> WAF Detected: ${escapeHtml(results.waf_detected)}`;
-        treeContainer.appendChild(wafDiv);
-    }
-
     // Data tree
     if (results.data && Object.keys(results.data).length > 0) {
         const dataDiv = document.createElement('div');
@@ -357,6 +370,7 @@ function buildResultTree(results) {
             dbItem.innerHTML = `
                 <span class="tree-toggle" onclick="toggleTree('${dbId}')">▼</span>
                 <i class="bi bi-database text-success"></i> <strong>${escapeHtml(database)}</strong>
+                <span class="badge bg-success text-dark ms-2">${Object.keys(tables).length} tables</span>
             `;
             dataDiv.appendChild(dbItem);
 
@@ -368,11 +382,10 @@ function buildResultTree(results) {
                 const tableItem = document.createElement('div');
                 tableItem.className = 'tree-item ms-3';
                 tableItem.style.cursor = 'pointer';
-                const tableId = `table-${dbIndex}-${tableIndex}`;
                 tableItem.innerHTML = `
                     <i class="bi bi-table text-success"></i> 
                     <span onclick="displayTableData('${escapeHtml(table)}', '${escapeHtml(JSON.stringify(rows).replace(/'/g, "\\'"))}')">
-                        ${escapeHtml(table)} <span class="badge bg-success text-dark">${rows.length}</span>
+                        ${escapeHtml(table)} <span class="badge bg-info text-dark">${rows.length} rows</span>
                     </span>
                 `;
                 childrenDiv.appendChild(tableItem);
@@ -382,13 +395,18 @@ function buildResultTree(results) {
         });
 
         treeContainer.appendChild(dataDiv);
+    } else {
+        const noDataDiv = document.createElement('div');
+        noDataDiv.className = 'alert alert-warning';
+        noDataDiv.innerHTML = '<i class="bi bi-exclamation-triangle"></i> No data extracted. Target may not be vulnerable or requires additional configuration.';
+        treeContainer.appendChild(noDataDiv);
     }
 
     // Errors
     if (results.errors && results.errors.length > 0) {
         const errorsDiv = document.createElement('div');
-        errorsDiv.className = 'alert alert-danger';
-        errorsDiv.innerHTML = '<strong>Errors:</strong><ul class="mb-0">';
+        errorsDiv.className = 'alert alert-danger mt-3';
+        errorsDiv.innerHTML = '<strong>Errors:</strong><ul class="mb-0 ps-3">';
         results.errors.forEach(error => {
             errorsDiv.innerHTML += `<li>${escapeHtml(error)}</li>`;
         });
@@ -486,97 +504,6 @@ function exportResults() {
 
     window.location.href = `/api/scan/${currentScanId}/export`;
     showNotification('Exporting data...', 'info');
-}
-
-/**
- * Copy results to clipboard
- */
-function copyToClipboard() {
-    if (!currentResults) {
-        showNotification('No results to copy', 'error');
-        return;
-    }
-
-    const text = JSON.stringify(currentResults, null, 2);
-    navigator.clipboard.writeText(text).then(() => {
-        showNotification('Results copied to clipboard', 'success');
-    }).catch(() => {
-        showNotification('Failed to copy to clipboard', 'error');
-    });
-}
-
-/**
- * Load session history
- */
-function loadSessionHistory() {
-    fetch('/api/sessions')
-    .then(response => response.json())
-    .then(sessions => {
-        const historyDiv = document.getElementById('sessionHistory');
-        historyDiv.innerHTML = '';
-
-        if (sessions.length === 0) {
-            historyDiv.innerHTML = '<p class="text-muted small">No sessions yet</p>';
-            return;
-        }
-
-        const list = document.createElement('div');
-        list.className = 'list-group list-group-flush';
-
-        sessions.forEach(session => {
-            const item = document.createElement('div');
-            item.className = 'list-group-item bg-dark border-success border-opacity-25';
-            item.style.cursor = 'pointer';
-
-            const statusBadge = session.status === 'completed'
-                ? '<span class="badge badge-success"><i class="bi bi-check-circle"></i></span>'
-                : session.status === 'failed'
-                ? '<span class="badge badge-danger"><i class="bi bi-x-circle"></i></span>'
-                : '<span class="badge bg-info"><i class="bi bi-hourglass-split"></i></span>';
-
-            const date = new Date(session.timestamp);
-            const timeStr = date.toLocaleTimeString();
-            const dateStr = date.toLocaleDateString();
-
-            item.innerHTML = `
-                <div class="d-flex justify-content-between align-items-start">
-                    <div class="flex-grow-1">
-                        <small class="text-muted">${timeStr}</small>
-                        <p class="mb-0 small text-truncate" title="${session.url}">${escapeHtml(session.url)}</p>
-                    </div>
-                    <div class="ms-2">${statusBadge}</div>
-                </div>
-            `;
-
-            item.addEventListener('click', () => {
-                currentScanId = session.id;
-                if (session.status === 'completed' && session.results) {
-                    currentResults = session.results;
-                    displayResults(session.results);
-                    document.getElementById('progressPanel').style.display = 'none';
-                    showNotification(`Loaded session from ${timeStr}`, 'info');
-                }
-            });
-
-            list.appendChild(item);
-        });
-
-        historyDiv.appendChild(list);
-    })
-    .catch(error => {
-        console.error('Error loading sessions:', error);
-    });
-}
-
-/**
- * Clear history
- */
-function clearHistory() {
-    if (confirm('Are you sure you want to clear all sessions?')) {
-        // This would require a new API endpoint
-        showNotification('History cleared', 'info');
-        loadSessionHistory();
-    }
 }
 
 /**
