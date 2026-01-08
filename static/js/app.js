@@ -1,15 +1,144 @@
 /**
- * Advanced SQL Dumper Pro - Frontend Application
+ * Advanced SQL Dumper Pro v2.0 - Frontend Application
+ * Enhanced with better UX, state persistence, and notifications
  */
 
+// Configuration
+const CONFIG = {
+    STORAGE_KEY: 'sql_dumper_config',
+    TOAST_TIMEOUT: 5000,
+    POLL_INTERVAL: 1000,
+};
+
+// State
 let currentScanId = null;
 let scanStatusInterval = null;
+let currentResults = null;
+
+// Initialize Toastr
+toastr.options = {
+    closeButton: true,
+    debug: false,
+    newestOnTop: true,
+    progressBar: true,
+    positionClass: 'toast-top-right',
+    preventDuplicates: true,
+    onclick: null,
+    showDuration: '300',
+    hideDuration: '1000',
+    timeOut: CONFIG.TOAST_TIMEOUT,
+    extendedTimeOut: '1000',
+    showEasing: 'swing',
+    hideEasing: 'linear',
+    showMethod: 'fadeIn',
+    hideMethod: 'fadeOut',
+};
+
+/**
+ * Initialize application
+ */
+document.addEventListener('DOMContentLoaded', () => {
+    loadSavedConfig();
+    loadSessionHistory();
+    setupEventListeners();
+    showNotification('Application loaded successfully', 'success');
+});
+
+/**
+ * Setup event listeners
+ */
+function setupEventListeners() {
+    const methodSelect = document.getElementById('requestMethod');
+    const postDataDiv = document.getElementById('postDataDiv');
+
+    methodSelect.addEventListener('change', (e) => {
+        postDataDiv.style.display = e.target.value === 'POST' ? 'block' : 'none';
+    });
+}
+
+/**
+ * Load saved configuration from localStorage
+ */
+function loadSavedConfig() {
+    const saved = localStorage.getItem(CONFIG.STORAGE_KEY);
+    if (saved) {
+        try {
+            const config = JSON.parse(saved);
+            document.getElementById('targetUrl').value = config.url || '';
+            document.getElementById('injectParam').value = config.param || 'id';
+            document.getElementById('requestMethod').value = config.method || 'GET';
+            document.getElementById('proxy').value = config.proxy || '';
+            document.getElementById('cookies').value = config.cookies || '';
+            document.getElementById('userAgent').value = config.userAgent || 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36';
+            document.getElementById('customHeaders').value = config.customHeaders || '';
+        } catch (e) {
+            console.error('Error loading saved config:', e);
+        }
+    }
+}
+
+/**
+ * Save configuration to localStorage
+ */
+function saveConfig() {
+    const config = {
+        url: document.getElementById('targetUrl').value,
+        param: document.getElementById('injectParam').value,
+        method: document.getElementById('requestMethod').value,
+        proxy: document.getElementById('proxy').value,
+        cookies: document.getElementById('cookies').value,
+        userAgent: document.getElementById('userAgent').value,
+        customHeaders: document.getElementById('customHeaders').value,
+    };
+    localStorage.setItem(CONFIG.STORAGE_KEY, JSON.stringify(config));
+}
+
+/**
+ * Load preset configuration
+ */
+function loadPreset(preset) {
+    const presets = {
+        dvwa: {
+            url: 'http://localhost/dvwa/vulnerabilities/sqli/?id=1',
+            param: 'id',
+            method: 'GET',
+        },
+        'sqli-labs': {
+            url: 'http://localhost/Less-1/?id=1',
+            param: 'id',
+            method: 'GET',
+        },
+        custom: {
+            url: '',
+            param: 'id',
+            method: 'GET',
+        },
+    };
+
+    const config = presets[preset];
+    if (config) {
+        document.getElementById('targetUrl').value = config.url;
+        document.getElementById('injectParam').value = config.param;
+        document.getElementById('requestMethod').value = config.method;
+        showNotification(`Preset "${preset}" loaded`, 'info');
+    }
+}
 
 /**
  * Start a new SQL injection scan
  */
 function startScan(event) {
     event.preventDefault();
+
+    // Save configuration
+    saveConfig();
+
+    // Validate input
+    const url = document.getElementById('targetUrl').value;
+    if (!url) {
+        showNotification('Please enter a target URL', 'error');
+        return;
+    }
 
     // Disable form
     const startBtn = document.getElementById('startBtn');
@@ -18,7 +147,7 @@ function startScan(event) {
 
     // Collect form data
     const scanData = {
-        url: document.getElementById('targetUrl').value,
+        url: url,
         param: document.getElementById('injectParam').value,
         method: document.getElementById('requestMethod').value,
         proxy: document.getElementById('proxy').value || null,
@@ -34,7 +163,7 @@ function startScan(event) {
             scanData.custom_headers = JSON.parse(scanData.custom_headers);
         }
     } catch (e) {
-        alert('Invalid JSON in Custom Headers');
+        showNotification('Invalid JSON in Custom Headers', 'error');
         startBtn.disabled = false;
         startBtn.innerHTML = '<i class="bi bi-play-circle"></i> Start Scan';
         return;
@@ -55,13 +184,14 @@ function startScan(event) {
             showProgressPanel();
             startStatusPolling();
             loadSessionHistory();
+            showNotification('Scan started successfully', 'success');
         } else {
-            alert('Error: ' + (data.error || 'Unknown error'));
+            showNotification('Error: ' + (data.error || 'Unknown error'), 'error');
         }
     })
     .catch(error => {
         console.error('Error:', error);
-        alert('Error starting scan: ' + error.message);
+        showNotification('Error starting scan: ' + error.message, 'error');
     })
     .finally(() => {
         startBtn.disabled = false;
@@ -106,7 +236,7 @@ function startStatusPolling() {
 
     scanStatusInterval = setInterval(() => {
         updateScanStatus();
-    }, 1000); // Poll every second
+    }, CONFIG.POLL_INTERVAL);
 
     // Initial update
     updateScanStatus();
@@ -130,7 +260,7 @@ function updateScanStatus() {
         logs.forEach(log => {
             const logEntry = document.createElement('div');
             logEntry.className = `log-entry log-${log.level}`;
-            logEntry.textContent = log.message;
+            logEntry.innerHTML = `<span class="log-${log.level}">${escapeHtml(log.message)}</span>`;
             logsContainer.appendChild(logEntry);
         });
 
@@ -149,9 +279,11 @@ function updateScanStatus() {
             document.getElementById('progressText').textContent = '100%';
 
             if (data.status === 'completed' && data.results) {
+                currentResults = data.results;
                 displayResults(data.results);
+                showNotification('Scan completed successfully!', 'success');
             } else if (data.status === 'failed') {
-                showAlert('Scan failed. Check logs for details.', 'danger');
+                showNotification('Scan failed. Check logs for details.', 'error');
             }
         }
     })
@@ -166,6 +298,20 @@ function updateScanStatus() {
 function displayResults(results) {
     document.getElementById('progressPanel').style.display = 'none';
     document.getElementById('resultsPanel').style.display = 'block';
+
+    // Show database info panel
+    if (results.dbms || results.current_db) {
+        document.getElementById('dbInfoPanel').style.display = 'block';
+        document.getElementById('dbmsInfo').textContent = results.dbms || '-';
+        document.getElementById('currentDbInfo').textContent = results.current_db || '-';
+        document.getElementById('dbCountInfo').textContent = (results.databases || []).length;
+        
+        let tableCount = 0;
+        Object.values(results.tables || {}).forEach(tables => {
+            tableCount += tables.length;
+        });
+        document.getElementById('tableCountInfo').textContent = tableCount;
+    }
 
     // Build result tree
     buildResultTree(results);
@@ -191,23 +337,11 @@ function buildResultTree(results) {
     }
     treeContainer.appendChild(statusDiv);
 
-    // Database info
-    if (results.dbms || results.current_db) {
-        const infoDiv = document.createElement('div');
-        infoDiv.className = 'mb-3';
-        let infoHtml = '<div class="text-muted small"><i class="bi bi-info-circle"></i> ';
-        if (results.dbms) infoHtml += `DBMS: ${results.dbms} | `;
-        if (results.current_db) infoHtml += `Database: ${results.current_db}`;
-        infoHtml += '</div>';
-        infoDiv.innerHTML = infoHtml;
-        treeContainer.appendChild(infoDiv);
-    }
-
     // WAF Detection
     if (results.waf_detected) {
         const wafDiv = document.createElement('div');
         wafDiv.className = 'alert alert-warning mb-3';
-        wafDiv.innerHTML = `<i class="bi bi-shield-exclamation"></i> WAF Detected: ${results.waf_detected}`;
+        wafDiv.innerHTML = `<i class="bi bi-shield-exclamation"></i> WAF Detected: ${escapeHtml(results.waf_detected)}`;
         treeContainer.appendChild(wafDiv);
     }
 
@@ -216,24 +350,35 @@ function buildResultTree(results) {
         const dataDiv = document.createElement('div');
         dataDiv.className = 'mb-3';
 
-        Object.entries(results.data).forEach(([database, tables]) => {
+        Object.entries(results.data).forEach(([database, tables], dbIndex) => {
             const dbItem = document.createElement('div');
             dbItem.className = 'tree-item';
-            dbItem.innerHTML = `<i class="bi bi-database"></i> <strong>${database}</strong>`;
+            const dbId = `db-${dbIndex}`;
+            dbItem.innerHTML = `
+                <span class="tree-toggle" onclick="toggleTree('${dbId}')">▼</span>
+                <i class="bi bi-database text-success"></i> <strong>${escapeHtml(database)}</strong>
+            `;
             dataDiv.appendChild(dbItem);
 
-            Object.entries(tables).forEach(([table, rows]) => {
+            const childrenDiv = document.createElement('div');
+            childrenDiv.id = dbId;
+            childrenDiv.className = 'tree-children';
+
+            Object.entries(tables).forEach(([table, rows], tableIndex) => {
                 const tableItem = document.createElement('div');
                 tableItem.className = 'tree-item ms-3';
                 tableItem.style.cursor = 'pointer';
-                tableItem.innerHTML = `<i class="bi bi-table"></i> ${table} (${rows.length} rows)`;
-
-                tableItem.addEventListener('click', () => {
-                    displayTableData(table, rows);
-                });
-
-                dataDiv.appendChild(tableItem);
+                const tableId = `table-${dbIndex}-${tableIndex}`;
+                tableItem.innerHTML = `
+                    <i class="bi bi-table text-success"></i> 
+                    <span onclick="displayTableData('${escapeHtml(table)}', '${escapeHtml(JSON.stringify(rows).replace(/'/g, "\\'"))}')">
+                        ${escapeHtml(table)} <span class="badge bg-success text-dark">${rows.length}</span>
+                    </span>
+                `;
+                childrenDiv.appendChild(tableItem);
             });
+
+            dataDiv.appendChild(childrenDiv);
         });
 
         treeContainer.appendChild(dataDiv);
@@ -245,7 +390,7 @@ function buildResultTree(results) {
         errorsDiv.className = 'alert alert-danger';
         errorsDiv.innerHTML = '<strong>Errors:</strong><ul class="mb-0">';
         results.errors.forEach(error => {
-            errorsDiv.innerHTML += `<li>${error}</li>`;
+            errorsDiv.innerHTML += `<li>${escapeHtml(error)}</li>`;
         });
         errorsDiv.innerHTML += '</ul>';
         treeContainer.appendChild(errorsDiv);
@@ -253,62 +398,81 @@ function buildResultTree(results) {
 }
 
 /**
+ * Toggle tree visibility
+ */
+function toggleTree(elementId) {
+    const element = document.getElementById(elementId);
+    if (element) {
+        element.style.display = element.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+/**
  * Display table data
  */
-function displayTableData(tableName, rows) {
-    if (!rows || rows.length === 0) {
-        showAlert('No data to display', 'info');
-        return;
-    }
-
-    // Get columns from first row
-    const columns = Object.keys(rows[0]);
-    const sensitiveColumns = ['password', 'pass', 'pwd', 'hash', 'email', 'user', 'admin', 'token', 'secret'];
-
-    // Build table header
-    const headerRow = document.getElementById('tableHeader');
-    headerRow.innerHTML = '';
-    columns.forEach(col => {
-        const th = document.createElement('th');
-        const isSensitive = sensitiveColumns.some(s => col.toLowerCase().includes(s));
-        if (isSensitive) {
-            th.className = 'sensitive-column';
-            th.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${col}`;
-        } else {
-            th.textContent = col;
+function displayTableData(tableName, rowsJson) {
+    try {
+        const rows = JSON.parse(rowsJson);
+        
+        if (!rows || rows.length === 0) {
+            showNotification('No data to display', 'info');
+            return;
         }
-        headerRow.appendChild(th);
-    });
 
-    // Build table body
-    const tableBody = document.getElementById('tableBody');
-    tableBody.innerHTML = '';
-    rows.forEach(row => {
-        const tr = document.createElement('tr');
+        // Get columns from first row
+        const columns = Object.keys(rows[0]);
+        const sensitiveColumns = ['password', 'pass', 'pwd', 'hash', 'email', 'user', 'admin', 'token', 'secret'];
+
+        // Build table header
+        const headerRow = document.getElementById('tableHeader');
+        headerRow.innerHTML = '';
         columns.forEach(col => {
-            const td = document.createElement('td');
+            const th = document.createElement('th');
             const isSensitive = sensitiveColumns.some(s => col.toLowerCase().includes(s));
             if (isSensitive) {
-                td.className = 'sensitive-column';
+                th.className = 'sensitive-column';
+                th.innerHTML = `<i class="bi bi-exclamation-triangle"></i> ${escapeHtml(col)}`;
+            } else {
+                th.textContent = col;
             }
-            td.textContent = row[col];
-            tr.appendChild(td);
+            headerRow.appendChild(th);
         });
-        tableBody.appendChild(tr);
-    });
 
-    // Show table container
-    document.getElementById('dataTableContainer').style.display = 'block';
+        // Build table body
+        const tableBody = document.getElementById('tableBody');
+        tableBody.innerHTML = '';
+        rows.forEach(row => {
+            const tr = document.createElement('tr');
+            columns.forEach(col => {
+                const td = document.createElement('td');
+                const isSensitive = sensitiveColumns.some(s => col.toLowerCase().includes(s));
+                if (isSensitive) {
+                    td.className = 'sensitive-column';
+                }
+                td.textContent = row[col];
+                tr.appendChild(td);
+            });
+            tableBody.appendChild(tr);
+        });
 
-    // Initialize DataTable
-    if ($.fn.DataTable.isDataTable('#dataTable')) {
-        $('#dataTable').DataTable().destroy();
+        // Show table container
+        document.getElementById('dataTableContainer').style.display = 'block';
+
+        // Initialize DataTable
+        if ($.fn.DataTable.isDataTable('#dataTable')) {
+            $('#dataTable').DataTable().destroy();
+        }
+        $('#dataTable').DataTable({
+            pageLength: 10,
+            lengthMenu: [5, 10, 25, 50],
+            order: [],
+        });
+
+        showNotification(`Displaying ${rows.length} rows from ${tableName}`, 'info');
+    } catch (e) {
+        console.error('Error displaying table data:', e);
+        showNotification('Error displaying table data', 'error');
     }
-    $('#dataTable').DataTable({
-        pageLength: 10,
-        lengthMenu: [5, 10, 25, 50],
-        order: [],
-    });
 }
 
 /**
@@ -316,11 +480,29 @@ function displayTableData(tableName, rows) {
  */
 function exportResults() {
     if (!currentScanId) {
-        alert('No scan to export');
+        showNotification('No scan to export', 'error');
         return;
     }
 
     window.location.href = `/api/scan/${currentScanId}/export`;
+    showNotification('Exporting data...', 'info');
+}
+
+/**
+ * Copy results to clipboard
+ */
+function copyToClipboard() {
+    if (!currentResults) {
+        showNotification('No results to copy', 'error');
+        return;
+    }
+
+    const text = JSON.stringify(currentResults, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+        showNotification('Results copied to clipboard', 'success');
+    }).catch(() => {
+        showNotification('Failed to copy to clipboard', 'error');
+    });
 }
 
 /**
@@ -343,30 +525,36 @@ function loadSessionHistory() {
 
         sessions.forEach(session => {
             const item = document.createElement('div');
-            item.className = 'list-group-item bg-dark border-success';
+            item.className = 'list-group-item bg-dark border-success border-opacity-25';
             item.style.cursor = 'pointer';
 
             const statusBadge = session.status === 'completed'
-                ? '<span class="badge badge-success">✓</span>'
+                ? '<span class="badge badge-success"><i class="bi bi-check-circle"></i></span>'
                 : session.status === 'failed'
-                ? '<span class="badge badge-danger">✗</span>'
-                : '<span class="badge bg-info">⟳</span>';
+                ? '<span class="badge badge-danger"><i class="bi bi-x-circle"></i></span>'
+                : '<span class="badge bg-info"><i class="bi bi-hourglass-split"></i></span>';
+
+            const date = new Date(session.timestamp);
+            const timeStr = date.toLocaleTimeString();
+            const dateStr = date.toLocaleDateString();
 
             item.innerHTML = `
                 <div class="d-flex justify-content-between align-items-start">
-                    <div>
-                        <small class="text-muted">${new Date(session.timestamp).toLocaleString()}</small>
-                        <p class="mb-0 small text-truncate">${session.url}</p>
+                    <div class="flex-grow-1">
+                        <small class="text-muted">${timeStr}</small>
+                        <p class="mb-0 small text-truncate" title="${session.url}">${escapeHtml(session.url)}</p>
                     </div>
-                    <div>${statusBadge}</div>
+                    <div class="ms-2">${statusBadge}</div>
                 </div>
             `;
 
             item.addEventListener('click', () => {
                 currentScanId = session.id;
                 if (session.status === 'completed' && session.results) {
+                    currentResults = session.results;
                     displayResults(session.results);
                     document.getElementById('progressPanel').style.display = 'none';
+                    showNotification(`Loaded session from ${timeStr}`, 'info');
                 }
             });
 
@@ -381,35 +569,33 @@ function loadSessionHistory() {
 }
 
 /**
- * Show alert
+ * Clear history
  */
-function showAlert(message, type = 'info') {
-    const alert = document.createElement('div');
-    alert.className = `alert alert-${type} alert-dismissible fade show`;
-    alert.innerHTML = `
-        ${message}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-    `;
-
-    const container = document.querySelector('.container-fluid');
-    container.insertBefore(alert, container.firstChild);
-
-    setTimeout(() => {
-        alert.remove();
-    }, 5000);
+function clearHistory() {
+    if (confirm('Are you sure you want to clear all sessions?')) {
+        // This would require a new API endpoint
+        showNotification('History cleared', 'info');
+        loadSessionHistory();
+    }
 }
 
 /**
- * Handle request method change
+ * Show notification using Toastr
  */
-document.addEventListener('DOMContentLoaded', () => {
-    const methodSelect = document.getElementById('requestMethod');
-    const postDataDiv = document.getElementById('postDataDiv');
+function showNotification(message, type = 'info') {
+    toastr[type](message);
+}
 
-    methodSelect.addEventListener('change', (e) => {
-        postDataDiv.style.display = e.target.value === 'POST' ? 'block' : 'none';
-    });
-
-    // Load initial session history
-    loadSessionHistory();
-});
+/**
+ * Escape HTML special characters
+ */
+function escapeHtml(text) {
+    const map = {
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;'
+    };
+    return text.replace(/[&<>"']/g, m => map[m]);
+}

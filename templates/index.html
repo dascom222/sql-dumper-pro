@@ -7,17 +7,21 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdn.datatables.net/1.13.7/css/dataTables.bootstrap5.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.css">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 <body class="bg-dark text-light">
     <!-- Navigation -->
-    <nav class="navbar navbar-dark bg-darker border-bottom border-success">
+    <nav class="navbar navbar-dark bg-darker border-bottom border-success sticky-top">
         <div class="container-fluid">
             <span class="navbar-brand mb-0 h1">
                 <i class="bi bi-shield-lock text-success"></i> Advanced SQL Dumper Pro
             </span>
-            <span class="text-muted small">v1.0</span>
+            <div class="d-flex gap-2">
+                <span class="badge bg-success text-dark">v2.0</span>
+                <span class="text-muted small">Professional Edition</span>
+            </div>
         </div>
     </nav>
 
@@ -25,13 +29,40 @@
     <div class="container-fluid py-4">
         <div class="row">
             <!-- Left Panel - Input Form -->
-            <div class="col-lg-4">
+            <div class="col-lg-3">
+                <!-- Quick Stats -->
+                <div class="card bg-darker border-success shadow-lg mb-3" id="statsCard" style="display: none;">
+                    <div class="card-body p-2">
+                        <div class="row text-center">
+                            <div class="col-6">
+                                <small class="text-muted">Databases</small>
+                                <div class="h5 text-success mb-0" id="dbCount">0</div>
+                            </div>
+                            <div class="col-6">
+                                <small class="text-muted">Tables</small>
+                                <div class="h5 text-success mb-0" id="tableCount">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Card -->
                 <div class="card bg-darker border-success shadow-lg">
                     <div class="card-header bg-success bg-opacity-10 border-success">
-                        <h5 class="mb-0"><i class="bi bi-gear"></i> Scan Configuration</h5>
+                        <h5 class="mb-0"><i class="bi bi-gear"></i> Configuration</h5>
                     </div>
                     <div class="card-body">
                         <form id="scanForm" onsubmit="startScan(event)">
+                            <!-- Quick Presets -->
+                            <div class="mb-3">
+                                <label class="form-label"><i class="bi bi-lightning"></i> Quick Presets</label>
+                                <div class="btn-group w-100" role="group">
+                                    <button type="button" class="btn btn-sm btn-outline-success" onclick="loadPreset('dvwa')">DVWA</button>
+                                    <button type="button" class="btn btn-sm btn-outline-success" onclick="loadPreset('sqli-labs')">SQLi-Labs</button>
+                                    <button type="button" class="btn btn-sm btn-outline-success" onclick="loadPreset('custom')">Custom</button>
+                                </div>
+                            </div>
+
                             <!-- Target URL -->
                             <div class="mb-3">
                                 <label for="targetUrl" class="form-label">
@@ -39,7 +70,9 @@
                                 </label>
                                 <input type="url" class="form-control form-control-sm bg-dark border-success text-light" 
                                        id="targetUrl" placeholder="http://target.com/vuln.php?id=1" required>
-                                <small class="text-muted">Example: http://target.com/page.php?id=1</small>
+                                <small class="text-muted d-block mt-1">
+                                    <i class="bi bi-info-circle"></i> Пример: http://localhost/dvwa/vulnerabilities/sqli/?id=1
+                                </small>
                             </div>
 
                             <!-- Injectable Parameter -->
@@ -48,7 +81,14 @@
                                     <i class="bi bi-arrow-right-circle"></i> Injectable Parameter
                                 </label>
                                 <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
-                                       id="injectParam" placeholder="id" value="id">
+                                       id="injectParam" placeholder="id" value="id" list="paramSuggestions">
+                                <datalist id="paramSuggestions">
+                                    <option value="id">
+                                    <option value="user_id">
+                                    <option value="product_id">
+                                    <option value="search">
+                                    <option value="q">
+                                </datalist>
                             </div>
 
                             <!-- Request Method -->
@@ -71,60 +111,70 @@
                                           id="postData" rows="2" placeholder="key1=value1&key2=value2"></textarea>
                             </div>
 
-                            <!-- Proxy -->
+                            <!-- Advanced Options Toggle -->
                             <div class="mb-3">
-                                <label for="proxy" class="form-label">
-                                    <i class="bi bi-diagram-3"></i> Proxy (Optional)
-                                </label>
-                                <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
-                                       id="proxy" placeholder="http://127.0.0.1:8080">
+                                <button type="button" class="btn btn-sm btn-outline-success w-100" data-bs-toggle="collapse" data-bs-target="#advancedOptions">
+                                    <i class="bi bi-sliders"></i> Advanced Options
+                                </button>
                             </div>
 
-                            <!-- Cookies -->
-                            <div class="mb-3">
-                                <label for="cookies" class="form-label">
-                                    <i class="bi bi-cookie"></i> Cookies (Optional)
-                                </label>
-                                <textarea class="form-control form-control-sm bg-dark border-success text-light" 
-                                          id="cookies" rows="2" placeholder="session=abc123; token=xyz789"></textarea>
-                            </div>
-
-                            <!-- User-Agent -->
-                            <div class="mb-3">
-                                <label for="userAgent" class="form-label">
-                                    <i class="bi bi-person-circle"></i> User-Agent
-                                </label>
-                                <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
-                                       id="userAgent" placeholder="Mozilla/5.0..." 
-                                       value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36">
-                            </div>
-
-                            <!-- Custom Headers -->
-                            <div class="mb-3">
-                                <label for="customHeaders" class="form-label">
-                                    <i class="bi bi-list"></i> Custom Headers (JSON)
-                                </label>
-                                <textarea class="form-control form-control-sm bg-dark border-success text-light" 
-                                          id="customHeaders" rows="2" placeholder='{"X-Custom": "value"}'></textarea>
-                            </div>
-
-                            <!-- Tamper Options -->
-                            <div class="mb-3">
-                                <label class="form-label"><i class="bi bi-shield-check"></i> Tamper Options</label>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="tamperSpace2Comment" value="space2comment">
-                                    <label class="form-check-label" for="tamperSpace2Comment">
-                                        Space to Comment (/**/)</label>
+                            <!-- Advanced Options -->
+                            <div class="collapse" id="advancedOptions">
+                                <!-- Proxy -->
+                                <div class="mb-3">
+                                    <label for="proxy" class="form-label small">
+                                        <i class="bi bi-diagram-3"></i> Proxy
+                                    </label>
+                                    <input type="text" class="form-control form-control-sm bg-dark border-success text-light" 
+                                           id="proxy" placeholder="http://127.0.0.1:8080">
                                 </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="tamperRandomCase" value="randomcase">
-                                    <label class="form-check-label" for="tamperRandomCase">
-                                        Random Case</label>
+
+                                <!-- Cookies -->
+                                <div class="mb-3">
+                                    <label for="cookies" class="form-label small">
+                                        <i class="bi bi-cookie"></i> Cookies
+                                    </label>
+                                    <textarea class="form-control form-control-sm bg-dark border-success text-light" 
+                                              id="cookies" rows="2" placeholder="session=abc123; token=xyz789"></textarea>
                                 </div>
-                                <div class="form-check">
-                                    <input class="form-check-input" type="checkbox" id="tamperBetween" value="between">
-                                    <label class="form-check-label" for="tamperBetween">
-                                        Between Obfuscation</label>
+
+                                <!-- User-Agent -->
+                                <div class="mb-3">
+                                    <label for="userAgent" class="form-label small">
+                                        <i class="bi bi-person-circle"></i> User-Agent
+                                    </label>
+                                    <select class="form-select form-select-sm bg-dark border-success text-light" id="userAgent">
+                                        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36">Chrome (Windows)</option>
+                                        <option value="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36">Chrome (macOS)</option>
+                                        <option value="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36">Chrome (Linux)</option>
+                                        <option value="Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:91.0) Gecko/20100101 Firefox/91.0">Firefox</option>
+                                    </select>
+                                </div>
+
+                                <!-- Custom Headers -->
+                                <div class="mb-3">
+                                    <label for="customHeaders" class="form-label small">
+                                        <i class="bi bi-list"></i> Custom Headers (JSON)
+                                    </label>
+                                    <textarea class="form-control form-control-sm bg-dark border-success text-light" 
+                                              id="customHeaders" rows="2" placeholder='{"X-Custom": "value"}'></textarea>
+                                </div>
+
+                                <!-- Tamper Options -->
+                                <div class="mb-3">
+                                    <label class="form-label small"><i class="bi bi-shield-check"></i> Tamper Options</label>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="tamperSpace2Comment" value="space2comment">
+                                        <label class="form-check-label small" for="tamperSpace2Comment">Space2Comment</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="tamperRandomCase" value="randomcase">
+                                        <label class="form-check-label small" for="tamperRandomCase">RandomCase</label>
+                                    </div>
+                                    <div class="form-check form-check-inline">
+                                        <input class="form-check-input" type="checkbox" id="tamperBetween" value="between">
+                                        <label class="form-check-label small" for="tamperBetween">Between</label>
+                                    </div>
                                 </div>
                             </div>
 
@@ -139,18 +189,21 @@
                 <!-- Session History -->
                 <div class="card bg-darker border-success shadow-lg mt-3">
                     <div class="card-header bg-success bg-opacity-10 border-success">
-                        <h5 class="mb-0"><i class="bi bi-clock-history"></i> Recent Sessions</h5>
-                    </div>
-                    <div class="card-body" id="sessionHistory">
-                        <div class="spinner-border spinner-border-sm text-success" role="status">
-                            <span class="visually-hidden">Loading...</span>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <h5 class="mb-0"><i class="bi bi-clock-history"></i> History</h5>
+                            <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()" title="Clear all">
+                                <i class="bi bi-trash"></i>
+                            </button>
                         </div>
+                    </div>
+                    <div class="card-body" id="sessionHistory" style="max-height: 300px; overflow-y: auto;">
+                        <div class="text-muted small">No sessions yet</div>
                     </div>
                 </div>
             </div>
 
             <!-- Right Panel - Results -->
-            <div class="col-lg-8">
+            <div class="col-lg-9">
                 <!-- Progress Panel -->
                 <div class="card bg-darker border-success shadow-lg mb-3" id="progressPanel" style="display: none;">
                     <div class="card-header bg-success bg-opacity-10 border-success">
@@ -177,13 +230,46 @@
                                 <h5 class="mb-0"><i class="bi bi-database"></i> Scan Results</h5>
                             </div>
                             <div class="col-auto">
-                                <button class="btn btn-sm btn-outline-success" id="exportBtn" onclick="exportResults()">
+                                <button class="btn btn-sm btn-outline-success" id="exportBtn" onclick="exportResults()" style="display: none;">
                                     <i class="bi bi-download"></i> Export CSV
+                                </button>
+                                <button class="btn btn-sm btn-outline-info" onclick="copyToClipboard()" style="display: none;">
+                                    <i class="bi bi-clipboard"></i> Copy
                                 </button>
                             </div>
                         </div>
                     </div>
                     <div class="card-body">
+                        <!-- Database Info -->
+                        <div id="dbInfoPanel" style="display: none;" class="mb-3">
+                            <div class="row">
+                                <div class="col-md-3">
+                                    <div class="bg-dark p-3 rounded border border-success border-opacity-25">
+                                        <small class="text-muted">DBMS</small>
+                                        <div class="h6 text-success mb-0" id="dbmsInfo">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-dark p-3 rounded border border-success border-opacity-25">
+                                        <small class="text-muted">Current DB</small>
+                                        <div class="h6 text-success mb-0" id="currentDbInfo">-</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-dark p-3 rounded border border-success border-opacity-25">
+                                        <small class="text-muted">Databases</small>
+                                        <div class="h6 text-success mb-0" id="dbCountInfo">0</div>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="bg-dark p-3 rounded border border-success border-opacity-25">
+                                        <small class="text-muted">Tables</small>
+                                        <div class="h6 text-success mb-0" id="tableCountInfo">0</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Database Tree -->
                         <div id="resultTree" class="mb-3">
                             <!-- Tree will be rendered here -->
@@ -209,6 +295,9 @@
                     <div class="card-body text-center py-5">
                         <i class="bi bi-inbox text-success" style="font-size: 3rem;"></i>
                         <p class="text-muted mt-3">No scan results yet. Configure and start a scan to begin.</p>
+                        <small class="text-muted d-block">
+                            <i class="bi bi-info-circle"></i> Use the form on the left to configure your target
+                        </small>
                     </div>
                 </div>
             </div>
@@ -220,6 +309,7 @@
     <script src="https://code.jquery.com/jquery-3.7.0.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/jquery.dataTables.min.js"></script>
     <script src="https://cdn.datatables.net/1.13.7/js/dataTables.bootstrap5.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/toastr.js/latest/toastr.min.js"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}"></script>
 </body>
 </html>
